@@ -122,8 +122,8 @@ retail-sales-analytics-dashboard/
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/nikhilkumarnayak364/retail-sales-analytics-dashboard.git
-cd retail-sales-analytics-dashboard
+git clone https://github.com/nikhilkumarnayak364-lang/analysis-.git
+cd analysis-
 ```
 
 ### Step 2: Install Dependencies
