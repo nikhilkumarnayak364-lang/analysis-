@@ -1,0 +1,94 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.env
+secrets.toml
+.streamlit/secrets.toml
+
+# Streamlit config (keep .streamlit/config.toml if present, exclude secrets)
+.streamlit/secrets.toml
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDE / Editor settings
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test outputs / scratch
+scratch/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Large data files (optional — remove this if you want to include the CSV)
+# data/*.csv
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
