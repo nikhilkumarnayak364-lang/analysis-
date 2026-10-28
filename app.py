@@ -8,6 +8,7 @@ Streamlit Interactive Dashboard for College Project:
 import os
 import io
 from datetime import datetime
+from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -18,6 +19,7 @@ import seaborn as sns
 
 import analysis
 import data_generator
+import db
 
 # ---------------------------------------------------------
 # Page Configuration & Styling
@@ -142,11 +144,26 @@ st.markdown(
 
 
 # ---------------------------------------------------------
-# Data Loader & Cache Management
 # ---------------------------------------------------------
-@st.cache_data
-def load_default_dataset() -> pd.DataFrame:
-    """Loads default sample CSV dataset, generating it if absent."""
+# Data Loader & MongoDB Management
+# ---------------------------------------------------------
+@st.cache_data(show_spinner="Loading transactions from MongoDB Atlas...")
+def load_mongodb_dataset(uri: str, db_name: str, col_name: str, limit: Optional[int] = None) -> pd.DataFrame:
+    """Queries retail transactions from MongoDB with in-memory caching."""
+    try:
+        raw_df = db.fetch_transactions(uri=uri, db_name=db_name, collection_name=col_name, limit=limit)
+    except Exception as e:
+        st.error(f"⚠️ **Could not fetch documents from MongoDB**: {e}")
+        st.info("💡 You can switch to **'📄 Local CSV Fallback (Offline)'** in the sidebar while your cluster initializes.")
+        return pd.DataFrame()
+    if raw_df.empty:
+        return raw_df
+    clean_df, _ = analysis.validate_and_clean_data(raw_df)
+    return clean_df
+
+
+def load_fallback_dataset() -> pd.DataFrame:
+    """Loads local sample dataset as a temporary fallback if MongoDB is not yet seeded."""
     default_path = "data/retail_sales.csv"
     if not os.path.exists(default_path):
         data_generator.save_default_dataset(output_path=default_path, num_records=2500)
@@ -177,7 +194,7 @@ st.sidebar.markdown(
     <div style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); padding: 18px 14px; border-radius: 10px; text-align: center; color: white; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
         <div style="font-size: 28px; margin-bottom: 4px;">🛍️ 📊</div>
         <div style="font-weight: 700; font-size: 16px; letter-spacing: 0.5px;">RETAIL INSIGHTS</div>
-        <div style="font-size: 11.5px; opacity: 0.85;">Analytics & Decision Suite</div>
+        <div style="font-size: 11.5px; opacity: 0.85;">Analytics & Decision Suite (MongoDB Atlas)</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -199,32 +216,154 @@ selected_section = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
+st.sidebar.subheader("🍃 MongoDB Configuration")
+
+# Read current URI from env or secrets
+configured_uri = db.get_connection_uri()
+configured_db = db.get_db_name()
+configured_col = db.get_collection_name()
+
+# Allow connection details to be viewed or adjusted in an expander
+with st.sidebar.expander("⚙️ Connection Settings", expanded=not bool(configured_uri)):
+    mongo_uri_input = st.text_input(
+        "MongoDB Atlas URI:",
+        value=configured_uri,
+        type="password" if configured_uri else "default",
+        placeholder="mongodb+srv://user:pass@cluster.mongodb.net/...",
+        help="Paste your MongoDB Atlas connection string here or set MONGODB_URI in .env / secrets.toml",
+    )
+    col_db1, col_db2 = st.columns(2)
+    with col_db1:
+        mongo_db_input = st.text_input("Database:", value=configured_db)
+    with col_db2:
+        mongo_col_input = st.text_input("Collection:", value=configured_col)
+
+active_uri = mongo_uri_input.strip() or configured_uri
+active_db = mongo_db_input.strip() or configured_db
+active_col = mongo_col_input.strip() or configured_col
+
+# Live connection check
+if active_uri:
+    is_connected, conn_msg = db.test_connection(uri=active_uri)
+    if is_connected:
+        stats = db.get_collection_stats(uri=active_uri, db_name=active_db, collection_name=active_col)
+        doc_count = stats.get("document_count", 0)
+        st.sidebar.success(f"🟢 **MongoDB Connected**\n`{active_db}.{active_col}` ({doc_count:,} docs)")
+    else:
+        st.sidebar.error(f"🔴 **MongoDB Connection Failed**\n{conn_msg[:120]}")
+else:
+    is_connected = False
+    st.sidebar.warning("⚠️ **MongoDB URI Not Set**\nEnter your Atlas connection string above or in `.env`.")
+
+# Choose Data Source
+st.sidebar.markdown("---")
 st.sidebar.subheader("📂 Data Source")
 
 data_source = st.sidebar.radio(
     "Choose Data Source:",
-    ["Default Sample Data (2,500 txns)", "Upload Custom CSV"],
+    [
+        "🍃 MongoDB Atlas Database",
+        "📁 Upload Custom CSV to MongoDB",
+        "📄 Local CSV Fallback (Offline)",
+    ],
     index=0,
 )
 
-df_loaded: pd.DataFrame
-if data_source == "Upload Custom CSV":
+df_loaded: pd.DataFrame = pd.DataFrame()
+
+if data_source == "🍃 MongoDB Atlas Database":
+    if not is_connected:
+        st.error("❌ **MongoDB is not connected.** Please enter your valid MongoDB Atlas connection string in the sidebar or provide it via `.env` / `.streamlit/secrets.toml`.")
+        st.info("💡 **Tip:** You can temporarily switch to **'📄 Local CSV Fallback (Offline)'** in the sidebar to test the dashboard while configuring your cluster.")
+        st.stop()
+
+    limit_choice = st.sidebar.radio(
+        "MongoDB Fetch Size:",
+        ["⚡ Quick Sample (500 records)", "📊 Full Dataset (2,500 records)"],
+        index=0,
+        help="Free-tier MongoDB Atlas transfers 500 records in ~2 seconds, whereas 2,500 records takes ~35-40 seconds across the internet.",
+    )
+    fetch_limit = 500 if "500" in limit_choice else None
+
+    df_loaded = load_mongodb_dataset(active_uri, active_db, active_col, limit=fetch_limit)
+
+    if df_loaded.empty:
+        st.warning(f"⚠️ **Collection `{active_db}.{active_col}` is currently empty.**")
+        if st.button("🌱 Seed MongoDB with 2,500 Sample Transactions"):
+            with st.spinner("Seeding retail transactions into MongoDB Atlas..."):
+                sample_df = load_fallback_dataset()
+                inserted = db.insert_transactions(
+                    sample_df,
+                    uri=active_uri,
+                    db_name=active_db,
+                    collection_name=active_col,
+                    drop_existing=True,
+                )
+                st.cache_data.clear()
+                st.success(f"✅ Successfully seeded {inserted:,} documents into MongoDB!")
+                st.rerun()
+        st.stop()
+    else:
+        # Refresh cache & Re-seed buttons in sidebar
+        col_btn1, col_btn2 = st.sidebar.columns(2)
+        with col_btn1:
+            if st.button("🔄 Refresh Cache", help="Clears local cache and fetches fresh data from MongoDB"):
+                st.cache_data.clear()
+                st.rerun()
+        with col_btn2:
+            if st.button("🌱 Re-seed Data", help="Re-generates and re-populates 2,500 sample transactions into MongoDB"):
+                with st.spinner("Re-seeding MongoDB..."):
+                    sample_df = data_generator.generate_retail_data(num_records=2500)
+                    clean_sample, _ = analysis.validate_and_clean_data(sample_df)
+                    db.insert_transactions(
+                        clean_sample,
+                        uri=active_uri,
+                        db_name=active_db,
+                        collection_name=active_col,
+                        drop_existing=True,
+                    )
+                    st.cache_data.clear()
+                    st.sidebar.success("MongoDB re-seeded!")
+                    st.rerun()
+
+elif data_source == "📁 Upload Custom CSV to MongoDB":
     uploaded_file = st.sidebar.file_uploader("Upload Retail CSV", type=["csv"])
     if uploaded_file is not None:
         df_loaded = load_uploaded_dataset(uploaded_file)
         st.sidebar.success(f"Loaded {len(df_loaded):,} valid records.")
+        if is_connected:
+            if st.sidebar.button("⬆️ Upload & Save to MongoDB"):
+                with st.spinner("Saving records to MongoDB..."):
+                    inserted = db.insert_transactions(
+                        df_loaded,
+                        uri=active_uri,
+                        db_name=active_db,
+                        collection_name=active_col,
+                        drop_existing=False,
+                    )
+                    st.cache_data.clear()
+                    st.sidebar.success(f"Inserted {inserted:,} new records into MongoDB!")
+                    st.rerun()
     else:
-        st.sidebar.info("Upload a CSV file conforming to the retail schema, or switch to the default sample dataset.")
+        st.sidebar.info("Upload a CSV file conforming to the retail schema.")
         st.stop()
-else:
-    df_loaded = load_default_dataset()
 
-# Button to regenerate default data if requested
-if data_source == "Default Sample Data (2,500 txns)":
-    if st.sidebar.button("🔄 Regenerate Sample Data"):
-        data_generator.save_default_dataset("data/retail_sales.csv", num_records=2500)
-        st.cache_data.clear()
-        st.rerun()
+else:  # Local CSV Fallback
+    df_loaded = load_fallback_dataset()
+    st.sidebar.info("Running on local offline CSV dataset.")
+    if is_connected:
+        if st.sidebar.button("⬆️ Sync Local CSV into MongoDB"):
+            with st.spinner("Syncing to MongoDB..."):
+                inserted = db.insert_transactions(
+                    df_loaded,
+                    uri=active_uri,
+                    db_name=active_db,
+                    collection_name=active_col,
+                    drop_existing=True,
+                )
+                st.cache_data.clear()
+                st.sidebar.success(f"Synced {inserted:,} records to MongoDB!")
+                st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Global Filter Controls")
@@ -918,10 +1057,11 @@ elif selected_section == "ℹ️ Project Information":
         ---
         ### 4. Technical Stack
         - **Language:** Python 3.10+
+        - **Database:** MongoDB Atlas (PyMongo) NoSQL Document Store
         - **Data Manipulation:** Pandas, NumPy
-        - **Visualizations:** Matplotlib, Seaborn, Plotly
+        - **Visualizations:** Matplotlib, Seaborn, Plotly Express & Graph Objects
         - **Web Application:** Streamlit
-        - **Data Storage:** Flat CSV files
+        - **Data Ingestion:** MongoDB Collection queries & CSV file ingestion
 
         ---
         ### 5. Project Limitations & Future Scope
@@ -948,6 +1088,13 @@ elif selected_section == "ℹ️ Project Information":
         st.write(
             "Revenue is the total inflow generated by sales (`Quantity * Unit_Price`). Profit requires subtracting the cost of goods sold (COGS) "
             "and operating expenses, which are not present in this sales transaction log. We explicitly clarify this distinction in the dashboard."
+        )
+
+    with st.expander("Q4: Why use MongoDB for storing retail sales transactions?"):
+        st.write(
+            "MongoDB's NoSQL document model is designed for high-throughput, horizontal scalability and dynamic schema flexibility. "
+            "Retail systems frequently update product attributes and customer metadata without rigid relational table migrations. "
+            "Indexing fields like `Transaction_Date`, `Product_Category`, and `City` in MongoDB allows instant analytic retrieval."
         )
 
 # ---------------------------------------------------------

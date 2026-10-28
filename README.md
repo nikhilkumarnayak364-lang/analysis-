@@ -62,18 +62,19 @@ This project solves these questions through a modular, filterable, and visually 
 | Technology | Purpose |
 |-----------|---------|
 | **Python 3.10+** | Core language |
+| **MongoDB Atlas / PyMongo** | Cloud NoSQL database for transaction storage and queries |
 | **Pandas** | Data manipulation, cleaning, aggregation |
 | **NumPy** | Numerical computation |
 | **Streamlit** | Interactive web dashboard |
 | **Plotly Express & Graph Objects** | Interactive charts with hover, zoom, tooltips |
 | **Matplotlib & Seaborn** | Academic-grade static visualizations |
-| **CSV** | Lightweight local data storage (no database required) |
+| **CSV** | Offline fallback & dataset upload/export |
 
 ---
 
 ## 📊 Dataset Description
 
-The project ships with an auto-generated synthetic retail transaction dataset (`data/retail_sales.csv`) containing **2,500 records** spanning 12 months (Jan–Dec 2024).
+The project ships with an auto-generated synthetic retail transaction dataset (`data/retail_sales.csv`) containing **2,500 records** spanning 12 months (Jan–Dec 2024), fully synced with MongoDB.
 
 ### Schema
 
@@ -101,12 +102,15 @@ The project ships with an auto-generated synthetic retail transaction dataset (`
 ```
 retail-sales-analytics-dashboard/
 │
-├── app.py                  # Main Streamlit web dashboard
+├── app.py                  # Main Streamlit web dashboard (MongoDB integrated)
+├── db.py                   # MongoDB Atlas / local connection & querying module
+├── seed_mongo.py           # CLI script to upload/seed CSV data into MongoDB
 ├── analysis.py             # Data validation, KPIs, aggregations, insights engine
 ├── data_generator.py       # Synthetic dataset generator (2,500+ records)
-├── test_app.py             # Automated unit test suite (14 tests)
+├── test_app.py             # Automated unit test suite (17 tests)
 ├── verify_kpis.py          # KPI and calculation verification script
-├── requirements.txt        # Python dependencies
+├── requirements.txt        # Python dependencies (includes pymongo, certifi, python-dotenv)
+├── .env.example            # Example MongoDB environment variable configuration
 ├── README.md               # Project documentation
 └── data/
     └── retail_sales.csv    # Default sample dataset (auto-generated on first run)
@@ -119,6 +123,7 @@ retail-sales-analytics-dashboard/
 ### Prerequisites
 - Python 3.10 or higher
 - pip package manager
+- (Optional) A free [MongoDB Atlas](https://www.mongodb.com/atlas) cluster or local MongoDB instance
 
 ### Step 1: Clone the Repository
 ```bash
@@ -131,16 +136,29 @@ cd analysis-
 pip install -r requirements.txt
 ```
 
-### Step 3: (Optional) Regenerate the Dataset
+### Step 3: Configure MongoDB (Atlas or Local)
+Copy `.env.example` to `.env` and fill in your connection string:
 ```bash
-python data_generator.py
+cp .env.example .env
 ```
-> The dataset is auto-generated on first run if `data/retail_sales.csv` does not exist.
+Edit `.env`:
+```ini
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.abcde.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB_NAME=retail_db
+MONGODB_COLLECTION_NAME=sales_transactions
+```
+*(Alternatively, you can paste your MongoDB Atlas URI directly in the Streamlit sidebar settings).*
 
-### Step 4: Launch the Dashboard
+### Step 4: Seed Data into MongoDB
 ```bash
-streamlit run app.py
+python seed_mongo.py --drop
 ```
+
+### Step 5: Launch the Dashboard
+```bash
+python -m streamlit run app.py
+```
+*(or `streamlit run app.py` if Python Scripts is on your PATH)*
 
 ### Step 5: Open in Browser
 ```

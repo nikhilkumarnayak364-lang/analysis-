@@ -11,6 +11,7 @@ import numpy as np
 
 import data_generator
 import analysis
+import db
 
 
 class TestRetailAnalytics(unittest.TestCase):
@@ -153,6 +154,22 @@ class TestRetailAnalytics(unittest.TestCase):
         self.assertEqual(empty_kpi["total_revenue"], 0.0)
         empty_insights = analysis.generate_business_insights(empty_res)
         self.assertEqual(len(empty_insights), 1)
+
+    def test_db_defaults(self):
+        """Verify MongoDB default database and collection names."""
+        self.assertEqual(db.DEFAULT_DB_NAME, "retail_db")
+        self.assertEqual(db.DEFAULT_COLLECTION_NAME, "sales_transactions")
+
+    def test_db_client_uri_validation(self):
+        """Verify client creation raises ValueError when URI is empty."""
+        with self.assertRaises(ValueError):
+            db.get_mongo_client(uri="")
+
+    def test_db_test_connection_invalid_host(self):
+        """Verify test_connection returns (False, msg) gracefully on non-existent cluster."""
+        success, msg = db.test_connection(uri="mongodb://invalid.nonexistent.cluster:27017/?connectTimeoutMS=500")
+        self.assertFalse(success)
+        self.assertIsInstance(msg, str)
 
 
 if __name__ == "__main__":
